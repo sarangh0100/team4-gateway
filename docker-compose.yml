@@ -1,0 +1,26 @@
+# Team 4 local dev compose. Later merged into the shared project docker-compose.yml.
+services:
+  gateway-service:
+    build: ./gateway-service
+    container_name: gateway-service
+    ports:
+      - "8080:8080"          # ONLY the gateway is exposed to the outside
+    environment:
+      - ROUTES_FILE=/app/config/routes.yaml
+      - LOG_LEVEL=INFO
+    depends_on:
+      - mock-records-service
+    networks:
+      - internal-net
+
+  mock-records-service:
+    build: ./mock-records-service
+    container_name: mock-records-service
+    expose:
+      - "9001"               # reachable inside the Docker network only (no "ports:")
+    networks:
+      - internal-net
+
+networks:
+  internal-net:
+    driver: bridge

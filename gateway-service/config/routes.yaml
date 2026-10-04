@@ -1,0 +1,9 @@
+# Path prefix -> internal service URL. Longest matching prefix wins.
+routes:
+  /api/records: http://mock-records-service:9001
+  # Added in later weeks (other teams' services):
+  # /auth:       http://iam-service:8003
+  # /api/ca:     http://ca-service:8001
+
+gateway:
+  upstream_timeout_seconds: 10
