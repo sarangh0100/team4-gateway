@@ -1,0 +1,27 @@
+# Firewall rules for the Team 4 gateway. Change values here, no code edits needed.
+
+rate_limit:
+  enabled: true
+  capacity: 20                 # burst size (max tokens per IP)
+  refill_per_second: 5.0       # sustained rate allowed per IP
+  violations_before_ban: 10    # rate-limit violations inside the window that trigger a ban
+  violation_window_seconds: 60
+  ban_seconds: 60
+  cleanup_interval_seconds: 60
+  stale_after_seconds: 300     # forget IPs idle for this long
+
+sanity:
+  allowed_methods: [GET, POST, PUT, DELETE]   # add OPTIONS if the browser UI needs CORS preflight
+  max_body_bytes: 1048576                     # 1 MB
+  max_path_length: 2048
+  max_headers: 100
+  max_header_value_length: 8192
+  require_json_content_type: true
+  allowed_content_types: [application/json]
+
+envelope:
+  enforce: false               # set true in Week 3 once Team 2's real envelope is in use
+  required_fields: [client_id, iv, payload, auth_tag, timestamp]
+  iv_hex_length: 24            # 96-bit IV = 24 hex chars
+  tag_hex_length: 32           # 128-bit GCM tag = 32 hex chars
+  max_client_id_length: 128

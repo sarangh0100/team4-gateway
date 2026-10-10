@@ -1,59 +1,53 @@
 """
-Middleware pipeline skeleton.
+Middleware pipeline.
 
-Order (fixed now, filled in during later weeks):
-  1. sanity_check        -> Week 2
-  2. rate_limit          -> Week 2
-  3. validate_certificate-> Week 3 (Team 1)
-  4. decrypt_envelope    -> Week 3 (Team 2)
-  5. replay_check        -> Week 3 (Team 2)
-  6. authorize           -> Week 3 (Team 3: JWT + RBAC/Biba)
+Order:
+  1. rate_limit           -> Week 2 (token bucket + bans). First, so floods of bad requests
+                             also burn tokens and get banned.
+  2. sanity_check         -> Week 2 (method, path, headers, size, content type, JSON, envelope)
+  3. resolve_route        -> Week 2 (path prefix -> internal service, else 404)
+  4. validate_certificate -> Week 3 (Team 1)
+  5. decrypt_envelope     -> Week 3 (Team 2)
+  6. replay_check         -> Week 3 (Team 2)
+  7. authorize            -> Week 3 (Team 3: JWT + RBAC/Biba)
 Then: forward -> log.
 
-Each stage receives a RequestContext and either returns normally (allow)
-or raises Drop (block the request).
+Each stage receives a RequestContext and either returns (allow) or raises Drop (block).
 """
-from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional
+import math
+
+from .config import settings
+from .pipeline_types import Drop, RequestContext  # noqa: F401  (re-exported for main.py)
+from .ratelimit import RateLimiter
+from .sanity import check_request
+
+rate_limiter = RateLimiter(settings.rate_limit)
 
 
-class Drop(Exception):
-    """Raised by a stage to block the request."""
-
-    def __init__(self, status_code: int, reason: str, event_type: str):
-        self.status_code = status_code
-        self.reason = reason
-        self.event_type = event_type
-        super().__init__(reason)
-
-
-@dataclass
-class RequestContext:
-    method: str
-    path: str
-    headers: dict
-    body: bytes
-    client_ip: str
-    request_id: str
-    route_prefix: Optional[str] = None
-    upstream_url: Optional[str] = None
-    client_id: Optional[str] = None      # filled by decrypt stage (Week 3)
-    claims: Optional[dict] = None        # filled by authorize stage (Week 3)
-    extra: dict = field(default_factory=dict)
-
-
-Stage = Callable[[RequestContext], Awaitable[None]]
-
-
-# ---- Stage stubs: pass-through for Week 1 -------------------------------------
-async def sanity_check(ctx: RequestContext) -> None:
-    return None  # Week 2: method whitelist, body size, JSON/envelope validation
-
-
+# ---- Week 2 stages -------------------------------------------------------------
 async def rate_limit(ctx: RequestContext) -> None:
-    return None  # Week 2: token bucket per IP
+    decision = rate_limiter.check(ctx.client_ip)
+    if decision.allowed:
+        return
+    retry = str(max(1, math.ceil(decision.retry_after)))
+    if decision.kind == "banned":
+        raise Drop(429, f"IP temporarily banned, retry in {retry}s", "ip_banned",
+                   headers={"Retry-After": retry})
+    raise Drop(429, "Too many requests", "rate_limited", headers={"Retry-After": retry})
 
 
+async def sanity_check(ctx: RequestContext) -> None:
+    check_request(ctx, settings.sanity, settings.envelope)
+
+
+async def resolve_route(ctx: RequestContext) -> None:
+    match = settings.match_route(ctx.path)
+    if match is None:
+        raise Drop(404, "Not found", "no_route")
+    ctx.route_prefix, ctx.upstream_url = match
+
+
+# ---- Week 3 stubs: pass-through for now ---------------------------------------
 async def validate_certificate(ctx: RequestContext) -> None:
     return None  # Week 3: X.509 check against Team 1 Root CA + CRL
 
@@ -71,8 +65,9 @@ async def authorize(ctx: RequestContext) -> None:
 
 
 PIPELINE: list = [
-    sanity_check,
     rate_limit,
+    sanity_check,
+    resolve_route,
     validate_certificate,
     decrypt_envelope,
     replay_check,
